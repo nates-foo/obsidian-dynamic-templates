@@ -32,13 +32,22 @@ class DynamicTemplate {
 		let contents = await app.vault.cachedRead(viewFile);
 		if (contents.contains("await")) contents = "(async () => { " + contents + " })()";
 
+		const sourcePath = this.sourcePath;
 		const dv = this.getDataviewPlugin(app).api;
-		if (!this.args.current) {
-			this.args.current = dv.page(this.sourcePath);
-		}
+		const handler = {
+			get: function (target: any, prop: any, _receiver: any) {
+				if (prop === 'current') {
+					return () => target.page(sourcePath);
+				}
+
+				// @ts-ignore
+				return Reflect.get(...arguments);
+			}
+		};
+		let dvProxy = new Proxy(dv, handler);
 
 		const func = new Function('dv', 'input', contents);
-		const result = await Promise.resolve(func(dv, this.args));
+		const result = await Promise.resolve(func(dvProxy, this.args));
 		return result;
 	}
 
