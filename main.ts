@@ -15,11 +15,13 @@ class DynamicTemplate {
 	public path: string;
 	public lineStart: number;
 	public lineEnd?: number;
+	public args: any;
 
-	constructor(sourcePath: string, path: string, lineStart: number) {
+	constructor(sourcePath: string, path: string, lineStart: number, args: any) {
 		this.sourcePath = sourcePath;
 		this.path = path;
 		this.lineStart = lineStart;
+		this.args = args;
 	}
 
 	public async generate(app: App): Promise<string | null> {
@@ -31,11 +33,12 @@ class DynamicTemplate {
 		if (contents.contains("await")) contents = "(async () => { " + contents + " })()";
 
 		const dv = this.getDataviewPlugin(app).api;
-		const current = dv.page(this.sourcePath);
-		// TODO input
+		if (!this.args.current) {
+			this.args.current = dv.page(this.sourcePath);
+		}
 
-		const func = new Function('dv', 'current', 'input', contents);
-		const result = await Promise.resolve(func(dv, current, null));
+		const func = new Function('dv', 'input', contents);
+		const result = await Promise.resolve(func(dv, this.args));
 		return result;
 	}
 
@@ -50,7 +53,7 @@ function getLines(md: string): string[] {
 }
 
 function getDynamicTemplates(md: string, sourcePath: string): DynamicTemplate[] {
-	const regexTempStart = /^%%\s+DT:\s+([^%]+)\s+%%\s*$/i;
+	const regexTempStart = /^%%\s+([^%]+)\s+%%\s*$/;
 	const regexTempEnd = /^%%%%\s*$/;
 
 	const templates: DynamicTemplate[] = [];
@@ -59,13 +62,18 @@ function getDynamicTemplates(md: string, sourcePath: string): DynamicTemplate[] 
 	const lines = getLines(md);
 	for (let i = 0; i < lines.length; i++) {
 		const line = lines[i];
+
 		const matchStart = line.match(regexTempStart);
 		if (matchStart) {
-			const path = matchStart[1];
-			currentTemplate = new DynamicTemplate(sourcePath, path, i);
-			templates.push(currentTemplate);
-
-		} else if (line.match(regexTempEnd) && currentTemplate) {
+			const args = eval(`({${matchStart[1]}})`);
+			if (args.template) {
+				currentTemplate = new DynamicTemplate(sourcePath, args.template, i, args);
+				templates.push(currentTemplate);
+				continue;
+			}
+		}
+		
+		if (line.match(regexTempEnd) && currentTemplate) {
 			currentTemplate.lineEnd = i;
 			currentTemplate = null;
 		}
