@@ -61,6 +61,11 @@ function getLines(md: string): string[] {
 	return md.split(/\r?\n/);
 }
 
+function hasDynamicTemplates(md: string): boolean {
+	const regex = /^%%\s+([^%]+)\s+%%\s*$/m;
+	return md.match(regex) != null;
+}
+
 function getDynamicTemplates(md: string, sourcePath: string): DynamicTemplate[] {
 	const regexTempStart = /^%%\s+([^%]+)\s+%%\s*$/;
 	const regexTempEnd = /^%%%%\s*$/;
@@ -101,8 +106,8 @@ export default class MyPlugin extends Plugin {
 		this.addSettingTab(new SampleSettingTab(this.app, this));
 
 		this.addCommand({
-			id: 'update',
-			name: 'Update',
+			id: 'update-active',
+			name: 'Update templates in active file',
 			checkCallback: (checking: boolean) => {
 				const markdownView = this.app.workspace.getActiveViewOfType(MarkdownView);
 				if (markdownView) {
@@ -113,6 +118,22 @@ export default class MyPlugin extends Plugin {
 				}
 			}
 		});
+
+		this.addCommand({
+			id: 'update-all',
+			name: 'Update templates in all files (can be slow)',
+			callback: async () => {
+				const { vault } = this.app;
+				for (const file of vault.getFiles()) {
+					const md = await vault.read(file);
+					if (hasDynamicTemplates(md)) {
+						this.update(file);
+					}
+				}
+			}
+		});
+
+		// TODO Add a command to insert a known template from a list
 	}
 
 	onunload() {
@@ -128,10 +149,15 @@ export default class MyPlugin extends Plugin {
 	}
 
 	public async update(file: TFile) {
+		// I tried using vault.process rather than vault.read + vault.modify but it doesn't work
+		// because the new content must be returned synchronously but template generation is 
+		// currently asynchronous.
+
 		const { vault } = this.app;
 		const md = await vault.read(file);
 
 		const templates = getDynamicTemplates(md, file.path);
+		if (templates.length === 0) return;
 
 		const lines = getLines(md);
 		let newLines = [];
