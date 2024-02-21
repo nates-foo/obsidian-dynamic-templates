@@ -1,8 +1,8 @@
 # Obsidian Dynamic Templates Plugin
 
-⚠️ — **This plugin is in early development.** It may be subject to breaking changes and you are using it at your own risk.
+⚠️ **This plugin is in early development.** It may be subject to breaking changes and you are using it at your own risk.
 
-**The main goal of this plugin is to offer templates whose content can be updated when state changes (like [Dataview](https://github.com/blacksmithgu/obsidian-dataview)) AND otherwise exists as plain Markdown.** Should you stop using the plugin, or Obsidian altogether, you will not lose the dynamic content that has already been generated in your notes. And, because the templates produce plain Markdown, they are fully compatible with [Obsidian Publish](https://obsidian.md/publish).
+**The main goal of this plugin is to offer templates whose _content_ can be updated when state changes (like [Dataview](https://github.com/blacksmithgu/obsidian-dataview)) AND otherwise exists as plain Markdown.** Should you stop using the plugin, or Obsidian altogether, you will not lose the dynamic content that has already been generated in your notes. And, because the templates produce plain Markdown, they are fully compatible with [Obsidian Publish](https://obsidian.md/publish).
 
 - A dynamic template can be inserted as a section anywhere in a Markdown note.
 - Templates are backed by a JavaScript file which outputs Markdown.
@@ -12,7 +12,7 @@
 
 ## Basic Usage
 
-In order to remain invisible in reading view, the dynamic templates syntax uses [Markdown comments](https://help.obsidian.md/Editing+and+formatting/Basic+formatting+syntax#Comments):
+In order to remain invisible in reading view, the dynamic template syntax uses [Markdown comments](https://help.obsidian.md/Editing+and+formatting/Basic+formatting+syntax#Comments):
 
 ```
 %% template: 'templates/foobar.js' %%
@@ -59,8 +59,8 @@ For more, including how to use arguments and Dataview, see the full [Obsidian Dy
 
 This plugin is not yet available via the community plugins interface of Obsidian, but you can install it manually:
 
-1. Clone this repository in `YourVault/.obsidian/plugins`.
-2. Make sure your NodeJS is at least v16 (`node --version`).
-3. `npm i` or `yarn` to install dependencies.
-4. `npm run build` to build the project.
-5. Enable it from Obsidian settings > Community plugins > Installed plugins.
+1. Clone this repository in `YourVault/.obsidian/plugins`
+2. Make sure your NodeJS is at least v16 (`node --version`)
+3. `npm i` or `yarn` to install dependencies
+4. `npm run build` to build the project
+5. Enable it from Obsidian settings > Community plugins > Installed plugins
