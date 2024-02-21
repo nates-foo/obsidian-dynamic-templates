@@ -73,13 +73,37 @@ function getDynamicTemplates(md: string, sourcePath: string): DynamicTemplate[] 
 	const templates: DynamicTemplate[] = [];
 	let currentTemplate: DynamicTemplate | null = null;
 
+	// In order to support nested code blocks we keep track of the depth of all open code blocks:
+	// - ``` is a depth of 0, ```` is 1, ````` is 2, basically the number of backticks - 3.
+	const codeBlockStack: number[] = [];
+	const regexCodeBlock = /^```(`*)[^`]*$/;
+
 	const lines = getLines(md);
 	for (let i = 0; i < lines.length; i++) {
 		const line = lines[i];
 
-		const matchStart = line.match(regexTempStart);
-		if (matchStart) {
-			const args = eval(`({${matchStart[1]}})`);
+		// Keep track of whether we are in a code block or nested code blocks.
+		const matchCodeBlock = line.match(regexCodeBlock);
+		if (matchCodeBlock) {
+			const depth = matchCodeBlock[1].length;
+			const index = codeBlockStack.indexOf(depth);
+			if (index === -1) {
+				// New code block for this particular depth, add it to the stack.
+				codeBlockStack.push(depth);
+			} else {
+				// Closing a previously open code block, remove all code blocks that have been open
+				// since (they are considered arbitrary code rather than code blocks).
+				codeBlockStack.splice(index);
+			}
+			continue;
+		}
+
+		// If we are in a code block then ignore templates.
+		if (codeBlockStack.length > 0) continue;
+
+		const matchTempStart = line.match(regexTempStart);
+		if (matchTempStart) {
+			const args = eval(`({${matchTempStart[1]}})`);
 			if (args.template) {
 				currentTemplate = new DynamicTemplate(sourcePath, args.template, i, args);
 				templates.push(currentTemplate);
@@ -90,7 +114,9 @@ function getDynamicTemplates(md: string, sourcePath: string): DynamicTemplate[] 
 		if (line.match(regexTempEnd) && currentTemplate) {
 			currentTemplate.lineEnd = i;
 			currentTemplate = null;
+			continue;
 		}
+
 	}
 
 	return templates;
