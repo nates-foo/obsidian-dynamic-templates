@@ -1,13 +1,13 @@
-import { App, MarkdownView, Plugin, PluginSettingTab, Setting, TFile } from 'obsidian';
+import { App, MarkdownView, Plugin, PluginSettingTab, TFile } from 'obsidian';
 
 // Remember to rename these classes and interfaces!
 
-interface MyPluginSettings {
-	mySetting: string;
+interface DynamicTemplatesSettings {
+	knownTemplatedFilePaths: string[];
 }
 
-const DEFAULT_SETTINGS: MyPluginSettings = {
-	mySetting: 'default'
+const DEFAULT_SETTINGS: DynamicTemplatesSettings = {
+	knownTemplatedFilePaths: []
 }
 
 class DynamicTemplate {
@@ -96,10 +96,11 @@ function getDynamicTemplates(md: string, sourcePath: string): DynamicTemplate[] 
 	return templates;
 }
 
-export default class MyPlugin extends Plugin {
-	settings: MyPluginSettings;
+export default class DynamicTemplatesPlugin extends Plugin {
 
-	async onload() {
+	public settings: DynamicTemplatesSettings;
+
+	public async onload() {
 		await this.loadSettings();
 
 		// This adds a settings tab so the user can configure various aspects of the plugin
@@ -112,7 +113,9 @@ export default class MyPlugin extends Plugin {
 				const markdownView = this.app.workspace.getActiveViewOfType(MarkdownView);
 				if (markdownView) {
 					if (!checking && markdownView.file) {
-						this.update(markdownView.file);
+						this.update(markdownView.file)
+							// Commit known templated file paths to disk.
+							.then(() => this.saveSettings());
 					}
 					return true;
 				}
@@ -124,40 +127,67 @@ export default class MyPlugin extends Plugin {
 			name: 'Update templates in all files (can be slow)',
 			callback: async () => {
 				const { vault } = this.app;
-				for (const file of vault.getFiles()) {
+				for (const file of vault.getMarkdownFiles()) {
 					const md = await vault.read(file);
 					if (hasDynamicTemplates(md)) {
-						this.update(file);
+						await this.update(file);
 					}
 				}
+
+				// Commit known templated file paths to disk.
+				this.saveSettings();
+			}
+		});
+
+		this.addCommand({
+			id: 'update-known',
+			name: 'Update known templates',
+			callback: async () => {
+				const { vault } = this.app;
+				for (const path of this.settings.knownTemplatedFilePaths) {
+					const file = vault.getAbstractFileByPath(path);
+					if (file instanceof TFile) {
+						this.update(file);
+					} else {
+						this.removeKnownTemplatedFilePath(path);
+					}
+				}
+
+				// Commit known templated file paths to disk.
+				this.saveSettings();
 			}
 		});
 
 		// TODO Add a command to insert a known template from a list
 	}
 
-	onunload() {
-
+	public onunload() {
 	}
 
-	async loadSettings() {
+	public async loadSettings() {
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
 	}
 
-	async saveSettings() {
+	public async saveSettings() {
 		await this.saveData(this.settings);
 	}
 
-	public async update(file: TFile) {
+	private async update(file: TFile) {
 		// I tried using vault.process rather than vault.read + vault.modify but it doesn't work
 		// because the new content must be returned synchronously but template generation is 
 		// currently asynchronous.
 
+		const { path } = file;
 		const { vault } = this.app;
 		const md = await vault.read(file);
 
-		const templates = getDynamicTemplates(md, file.path);
-		if (templates.length === 0) return;
+		const templates = getDynamicTemplates(md, path);
+		if (templates.length === 0) {
+			this.removeKnownTemplatedFilePath(path);
+			return;
+		} else {
+			this.addKnownTemplatedFilePath(path);
+		}
 
 		const lines = getLines(md);
 		let newLines = [];
@@ -184,12 +214,22 @@ export default class MyPlugin extends Plugin {
 		// TODO Add metadata
 		await vault.modify(file, data);
 	}
+
+	private addKnownTemplatedFilePath(path: string) {
+		if (!this.settings.knownTemplatedFilePaths.contains(path)) {
+			this.settings.knownTemplatedFilePaths.push(path);
+		}
+	}
+	
+	private removeKnownTemplatedFilePath(path: string) {
+		this.settings.knownTemplatedFilePaths.remove(path);
+	}
 }
 
 class SampleSettingTab extends PluginSettingTab {
-	plugin: MyPlugin;
+	plugin: DynamicTemplatesPlugin;
 
-	constructor(app: App, plugin: MyPlugin) {
+	constructor(app: App, plugin: DynamicTemplatesPlugin) {
 		super(app, plugin);
 		this.plugin = plugin;
 	}
@@ -199,6 +239,7 @@ class SampleSettingTab extends PluginSettingTab {
 
 		containerEl.empty();
 
+		/*
 		new Setting(containerEl)
 			.setName('Setting #1')
 			.setDesc('It\'s a secret')
@@ -209,5 +250,6 @@ class SampleSettingTab extends PluginSettingTab {
 					this.plugin.settings.mySetting = value;
 					await this.plugin.saveSettings();
 				}));
+				*/
 	}
 }
