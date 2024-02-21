@@ -1,13 +1,15 @@
-import { App, MarkdownView, Plugin, PluginSettingTab, TFile } from 'obsidian';
-
-// Remember to rename these classes and interfaces!
+import { App, Editor, MarkdownView, Plugin, PluginSettingTab, SuggestModal, TFile } from 'obsidian';
 
 interface DynamicTemplatesSettings {
+	// Markdown notes that contain Markdown.
 	knownTemplatedFilePaths: string[];
+	// JavaScript templates.
+	knownTemplatePaths: string[];
 }
 
 const DEFAULT_SETTINGS: DynamicTemplatesSettings = {
-	knownTemplatedFilePaths: []
+	knownTemplatedFilePaths: [],
+	knownTemplatePaths: []
 }
 
 class DynamicTemplate {
@@ -17,6 +19,12 @@ class DynamicTemplate {
 	public lineEnd?: number;
 	public args: any;
 
+	/**
+	 * @param sourcePath path to the source / templated note.
+	 * @param path path to the JavaScript template.
+	 * @param lineStart the starting line for the template section.
+	 * @param args arguments passed to the template.
+	 */
 	constructor(sourcePath: string, path: string, lineStart: number, args: any) {
 		this.sourcePath = sourcePath;
 		this.path = path;
@@ -173,7 +181,7 @@ export default class DynamicTemplatesPlugin extends Plugin {
 				for (const path of this.settings.knownTemplatedFilePaths) {
 					const file = vault.getAbstractFileByPath(path);
 					if (file instanceof TFile) {
-						this.update(file);
+						await this.update(file);
 					} else {
 						this.removeKnownTemplatedFilePath(path);
 					}
@@ -184,7 +192,35 @@ export default class DynamicTemplatesPlugin extends Plugin {
 			}
 		});
 
-		// TODO Add a command to insert a known template from a list
+		this.addCommand({
+			id: 'insert',
+			name: 'Insert from known templates',
+			editorCallback: (editor: Editor, view: MarkdownView) => {
+				new TemplateSelectionModal(
+					this.app,
+					this.settings.knownTemplatePaths,
+					(selectedTemplatePath) => {
+						console.log('selected', selectedTemplatePath);
+						const cursor = editor.getCursor();
+						const lineContent = editor.getLine(cursor.line);
+						const templateInsert = `%% template: '${selectedTemplatePath}' %%`;
+
+						if (lineContent.trim() === "") {
+							// If the line is empty, insert text at the cursor position.
+							editor.replaceRange(templateInsert, cursor);
+							// Move cursor to end of insert.
+							editor.setCursor(cursor.line, templateInsert.length);
+						} else {
+							// If the line is not empty, insert text on the next line.
+							const position = { line: cursor.line, ch: lineContent.length };
+							editor.replaceRange("\n" + templateInsert, position);
+							// Move cursor to end of insert.
+							editor.setCursor(cursor.line + 1, templateInsert.length);
+						}
+					}
+				).open();
+			}
+		});
 	}
 
 	public onunload() {
@@ -226,8 +262,12 @@ export default class DynamicTemplatesPlugin extends Plugin {
 			if (template) {
 				const generatedContent = await template.generate(this.app);
 				if (generatedContent) {
+					this.addKnownTemplatePath(template.path);
+
 					newLines.push(...getLines(generatedContent));
 					newLines.push('%%%%');
+				} else {
+					this.removeKnownTemplatePath(template.path);
 				}
 
 				if (template.lineEnd) {
@@ -249,6 +289,44 @@ export default class DynamicTemplatesPlugin extends Plugin {
 	
 	private removeKnownTemplatedFilePath(path: string) {
 		this.settings.knownTemplatedFilePaths.remove(path);
+	}
+
+	private addKnownTemplatePath(path: string) {
+		if (!this.settings.knownTemplatePaths.contains(path)) {
+			this.settings.knownTemplatePaths.push(path);
+		}
+	}
+	
+	private removeKnownTemplatePath(path: string) {
+		this.settings.knownTemplatePaths.remove(path);
+	}
+}
+
+export class TemplateSelectionModal extends SuggestModal<string> {
+
+	private templates: string[];
+	private callback: (selectedTemplate: string) => void;
+
+	public constructor(
+		app: App,
+		templates: string[],
+		callback: (selectedTemplate: string) => void
+	) {
+		super(app);
+		this.templates = templates;
+		this.callback = callback;
+	}
+
+	public override getSuggestions(query: string): string[] {
+		return this.templates.filter(t => t.toLowerCase().includes(query.toLowerCase()));
+	}
+
+	public override renderSuggestion(template: string, el: HTMLElement) {
+		el.createEl('div', { text: template });
+	}
+
+	public override onChooseSuggestion(template: string, evt: MouseEvent | KeyboardEvent) {
+		this.callback(template);
 	}
 }
 
