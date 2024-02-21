@@ -1,6 +1,6 @@
 # Obsidian Dynamic Templates Plugin
 
-⚠️ **This plugin is in early development.** It may be subject to breaking changes and you are using it at your own risk.
+⚠️ **This plugin is in early development.** It may be subject to breaking changes. Use it at your own risk.
 
 **The main goal of this plugin is to offer templates whose _content_ can be updated when state changes (like [Dataview](https://github.com/blacksmithgu/obsidian-dataview)) AND otherwise exists as plain Markdown.** Should you stop using the plugin, or Obsidian altogether, you will not lose the dynamic content that has already been generated in your notes. And, because the templates produce plain Markdown, they are fully compatible with [Obsidian Publish](https://obsidian.md/publish).
 
