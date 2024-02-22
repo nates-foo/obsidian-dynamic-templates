@@ -200,23 +200,33 @@ export default class DynamicTemplatesPlugin extends Plugin {
 					this.app,
 					this.settings.knownTemplatePaths,
 					(selectedTemplatePath) => {
-						console.log('selected', selectedTemplatePath);
+						const { file } = view;
+						if (!file) return;
+
 						const cursor = editor.getCursor();
 						const lineContent = editor.getLine(cursor.line);
-						const templateInsert = `%% template: '${selectedTemplatePath}' %%`;
 
-						if (lineContent.trim() === "") {
-							// If the line is empty, insert text at the cursor position.
-							editor.replaceRange(templateInsert, cursor);
-							// Move cursor to end of insert.
-							editor.setCursor(cursor.line, templateInsert.length);
-						} else {
-							// If the line is not empty, insert text on the next line.
-							const position = { line: cursor.line, ch: lineContent.length };
-							editor.replaceRange("\n" + templateInsert, position);
-							// Move cursor to end of insert.
-							editor.setCursor(cursor.line + 1, templateInsert.length);
-						}
+						const template = new DynamicTemplate(file.path, selectedTemplatePath, cursor.line, {});
+						template.generate(this.app)
+							.then(generatedContent => {
+
+								const templateInsert = `%% template: '${selectedTemplatePath}' %%`
+									+ `\n${generatedContent}`
+									+ "\n%%%%";
+
+								if (lineContent.trim() === "") {
+									// If the line is empty, insert text at the cursor position.
+									editor.replaceRange(templateInsert, cursor);
+									// Move cursor to end of insert.
+									editor.setCursor(cursor.line, templateInsert.length);
+								} else {
+									// If the line is not empty, insert text on the next line.
+									const position = { line: cursor.line, ch: lineContent.length };
+									editor.replaceRange("\n" + templateInsert, position);
+									// Move cursor to end of insert.
+									editor.setCursor(cursor.line + 1, templateInsert.length);
+								}
+							});
 					}
 				).open();
 			}
