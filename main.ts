@@ -156,8 +156,8 @@ export default class DynamicTemplatesPlugin extends Plugin {
 		this.addSettingTab(new SampleSettingTab(this.app, this));
 
 		this.addCommand({
-			id: 'update-active',
-			name: 'Update templates in active file',
+			id: 'invoke-active',
+			name: 'Invoke templates in active file',
 			checkCallback: (checking: boolean) => {
 				const markdownView = this.app.workspace.getActiveViewOfType(MarkdownView);
 				if (markdownView) {
@@ -172,8 +172,8 @@ export default class DynamicTemplatesPlugin extends Plugin {
 		});
 
 		this.addCommand({
-			id: 'update-all',
-			name: 'Update templates in all files (can be slow)',
+			id: 'invoke-all',
+			name: 'Invoke templates in all Markdown files (can be slow)',
 			callback: async () => {
 				const { vault } = this.app;
 				for (const file of vault.getMarkdownFiles()) {
@@ -189,8 +189,8 @@ export default class DynamicTemplatesPlugin extends Plugin {
 		});
 
 		this.addCommand({
-			id: 'update-known',
-			name: 'Update known templates',
+			id: 'invoke-known',
+			name: 'Invoke all known templates',
 			callback: async () => {
 				const { vault } = this.app;
 				for (const path of this.settings.knownTemplatedFilePaths) {
