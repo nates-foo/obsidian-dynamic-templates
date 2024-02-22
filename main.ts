@@ -1,5 +1,14 @@
 import { App, Editor, MarkdownView, Plugin, PluginSettingTab, SuggestModal, TFile } from 'obsidian';
 
+/**
+ * TERMINOLOGY
+ * - Template reference = %% template: … %%
+ * - Template (script) = the JS file used to generate Markdown
+ * - Template invocation = executing a template with args to generate Markdown
+ * - Template result = the generated content
+ * - Source = the Markdown note making the template invocation
+ */
+
 interface DynamicTemplatesSettings {
 	// Markdown notes that contain Markdown.
 	knownTemplatedFilePaths: string[];
@@ -12,7 +21,83 @@ const DEFAULT_SETTINGS: DynamicTemplatesSettings = {
 	knownTemplatePaths: []
 }
 
+function getDataviewPlugin(app: App): any | null {
+	// @ts-ignore
+	return app.plugins.plugins['dataview'];
+}
+
+function getLines(md: string): string[] {
+	return md.split(/\r?\n/);
+}
+
+function hasDynamicTemplates(md: string): boolean {
+	// TODO Simpler, more performant heuristic?
+	const regex = /^%%\s+([^%]+)\s+%%\s*$/m;
+	return md.match(regex) != null;
+}
+
+/**
+ * Models a template, as in a JavaScript file which can be invoked with arguments and returns
+ * Markdown.
+ */
 class DynamicTemplate {
+
+	/**
+	 * @param sourcePath the path of the file referencing "path"
+	 * @param path the path of the template script
+	 * @returns a template instance or null if the template script wasn't found
+	 */
+	public static async get(app: App, sourcePath: string, path: string): Promise<DynamicTemplate | null> {
+		// Based on https://github.com/blacksmithgu/obsidian-dataview/blob/e4a6cab97b628deb22d36b73ce912abca541ad42/src/api/inline-api.ts#L317
+        const file = app.metadataCache.getFirstLinkpathDest(path, sourcePath);
+		if (!file) return null;
+
+		let code = await app.vault.cachedRead(file);
+		if (code.contains("await")) code = "(async () => { " + code + " })()";
+
+		const func = new Function('dv', 'input', code);
+		return new DynamicTemplate(app, func);
+	}
+
+	private app: App;
+	private templateFunction: Function;
+
+	private constructor(app: App, templateFunction: Function) {
+		this.app = app;
+		this.templateFunction = templateFunction;
+	}
+
+	/**
+	 * @param sourcePath the path of the file invoking the template
+	 */
+	public async invoke(sourcePath: string, args?: any): Promise<string | null | undefined> {
+		let dvProxy = null;
+		const dv = getDataviewPlugin(this.app)?.api;
+		if (dv) {
+			const handler = {
+				get: function (target: any, prop: any, _receiver: any) {
+					if (prop === 'current') {
+						return () => target.page(sourcePath);
+					}
+
+					// @ts-ignore
+					return Reflect.get(...arguments);
+				}
+			};
+			dvProxy = new Proxy(dv, handler);
+		}
+
+		const result = await Promise.resolve(this.templateFunction(dvProxy, args));
+		// TODO If there was an error, display it
+		return result?.toString();
+	}
+}
+
+/**
+ * %%{ template: … }%%
+ */
+class DynamicTemplateReference {
+	public app: App;
 	public sourcePath: string;
 	public path: string;
 	public lineStart: number;
@@ -25,109 +110,18 @@ class DynamicTemplate {
 	 * @param lineStart the starting line for the template section.
 	 * @param args arguments passed to the template.
 	 */
-	constructor(sourcePath: string, path: string, lineStart: number, args: any) {
+	constructor(app: App, sourcePath: string, path: string, lineStart: number, args: any) {
+		this.app = app;
 		this.sourcePath = sourcePath;
 		this.path = path;
 		this.lineStart = lineStart;
 		this.args = args;
 	}
 
-	public async generate(app: App): Promise<string | null> {
-		// Based on https://github.com/blacksmithgu/obsidian-dataview/blob/e4a6cab97b628deb22d36b73ce912abca541ad42/src/api/inline-api.ts#L317
-        const viewFile = app.metadataCache.getFirstLinkpathDest(this.path, this.sourcePath);
-		if (!viewFile) return null;
-
-		let contents = await app.vault.cachedRead(viewFile);
-		if (contents.contains("await")) contents = "(async () => { " + contents + " })()";
-
-		const sourcePath = this.sourcePath;
-		const dv = this.getDataviewPlugin(app).api;
-		const handler = {
-			get: function (target: any, prop: any, _receiver: any) {
-				if (prop === 'current') {
-					return () => target.page(sourcePath);
-				}
-
-				// @ts-ignore
-				return Reflect.get(...arguments);
-			}
-		};
-		let dvProxy = new Proxy(dv, handler);
-
-		const func = new Function('dv', 'input', contents);
-		const result = await Promise.resolve(func(dvProxy, this.args));
-		return result;
+	public async invokeTemplate(): Promise<string | null | undefined> {
+		const template = await DynamicTemplate.get(this.app, this.sourcePath, this.path);
+		return template ? template.invoke(this.sourcePath, this.args) : null;
 	}
-
-	private getDataviewPlugin(app: App): any {
-		// @ts-ignore
-		return app.plugins.plugins['dataview'];
-	}
-}
-
-function getLines(md: string): string[] {
-	return md.split(/\r?\n/);
-}
-
-function hasDynamicTemplates(md: string): boolean {
-	const regex = /^%%\s+([^%]+)\s+%%\s*$/m;
-	return md.match(regex) != null;
-}
-
-function getDynamicTemplates(md: string, sourcePath: string): DynamicTemplate[] {
-	const regexTempStart = /^%%\s+([^%]+)\s+%%\s*$/;
-	const regexTempEnd = /^%%%%\s*$/;
-
-	const templates: DynamicTemplate[] = [];
-	let currentTemplate: DynamicTemplate | null = null;
-
-	// In order to support nested code blocks we keep track of the depth of all open code blocks:
-	// - ``` is a depth of 0, ```` is 1, ````` is 2, basically the number of backticks - 3.
-	const codeBlockStack: number[] = [];
-	const regexCodeBlock = /^```(`*)[^`]*$/;
-
-	const lines = getLines(md);
-	for (let i = 0; i < lines.length; i++) {
-		const line = lines[i];
-
-		// Keep track of whether we are in a code block or nested code blocks.
-		const matchCodeBlock = line.match(regexCodeBlock);
-		if (matchCodeBlock) {
-			const depth = matchCodeBlock[1].length;
-			const index = codeBlockStack.indexOf(depth);
-			if (index === -1) {
-				// New code block for this particular depth, add it to the stack.
-				codeBlockStack.push(depth);
-			} else {
-				// Closing a previously open code block, remove all code blocks that have been open
-				// since (they are considered arbitrary code rather than code blocks).
-				codeBlockStack.splice(index);
-			}
-			continue;
-		}
-
-		// If we are in a code block then ignore templates.
-		if (codeBlockStack.length > 0) continue;
-
-		const matchTempStart = line.match(regexTempStart);
-		if (matchTempStart) {
-			const args = eval(`({${matchTempStart[1]}})`);
-			if (args.template) {
-				currentTemplate = new DynamicTemplate(sourcePath, args.template, i, args);
-				templates.push(currentTemplate);
-				continue;
-			}
-		}
-		
-		if (line.match(regexTempEnd) && currentTemplate) {
-			currentTemplate.lineEnd = i;
-			currentTemplate = null;
-			continue;
-		}
-
-	}
-
-	return templates;
 }
 
 export default class DynamicTemplatesPlugin extends Plugin {
@@ -196,7 +190,7 @@ export default class DynamicTemplatesPlugin extends Plugin {
 			id: 'insert',
 			name: 'Insert from known templates',
 			editorCallback: (editor: Editor, view: MarkdownView) => {
-				new TemplateSelectionModal(
+				new StringSuggestModel(
 					this.app,
 					this.settings.knownTemplatePaths,
 					(selectedTemplatePath) => {
@@ -206,13 +200,14 @@ export default class DynamicTemplatesPlugin extends Plugin {
 						const cursor = editor.getCursor();
 						const lineContent = editor.getLine(cursor.line);
 
-						const template = new DynamicTemplate(file.path, selectedTemplatePath, cursor.line, {});
-						template.generate(this.app)
-							.then(generatedContent => {
+						DynamicTemplate.get(this.app, file.path, selectedTemplatePath)
+							.then(async (template: DynamicTemplate | null) => {
+								const result = template?.invoke(file.path)
 
-								const templateInsert = `%% template: '${selectedTemplatePath}' %%`
-									+ `\n${generatedContent}`
-									+ "\n%%%%";
+								let templateInsert = `%% template: '${selectedTemplatePath}' %%`;
+								if (result) {
+									templateInsert += `\n${result}\n%%%%`;
+								}
 
 								if (lineContent.trim() === "") {
 									// If the line is empty, insert text at the cursor position.
@@ -244,6 +239,62 @@ export default class DynamicTemplatesPlugin extends Plugin {
 		await this.saveData(this.settings);
 	}
 
+	private getDynamicTemplateReferences(md: string, sourcePath: string): DynamicTemplateReference[] {
+		const regexTempStart = /^%%\s+([^%]+)\s+%%\s*$/;
+		const regexTempEnd = /^%%%%\s*$/;
+
+		const templates: DynamicTemplateReference[] = [];
+		let currentTemplate: DynamicTemplateReference | null = null;
+
+		// In order to support nested code blocks we keep track of the depth of all open code blocks:
+		// - ``` is a depth of 0, ```` is 1, ````` is 2, basically the number of backticks - 3.
+		const codeBlockStack: number[] = [];
+		const regexCodeBlock = /^```(`*)[^`]*$/;
+
+		const lines = getLines(md);
+		for (let i = 0; i < lines.length; i++) {
+			const line = lines[i];
+
+			// Keep track of whether we are in a code block or nested code blocks.
+			const matchCodeBlock = line.match(regexCodeBlock);
+			if (matchCodeBlock) {
+				const depth = matchCodeBlock[1].length;
+				const index = codeBlockStack.indexOf(depth);
+				if (index === -1) {
+					// New code block for this particular depth, add it to the stack.
+					codeBlockStack.push(depth);
+				} else {
+					// Closing a previously open code block, remove all code blocks that have been open
+					// since (they are considered arbitrary code rather than code blocks).
+					codeBlockStack.splice(index);
+				}
+				continue;
+			}
+
+			// If we are in a code block then ignore templates.
+			if (codeBlockStack.length > 0) continue;
+
+			const matchTempStart = line.match(regexTempStart);
+			if (matchTempStart) {
+				const args = eval(`({${matchTempStart[1]}})`);
+				if (args.template) {
+					currentTemplate = new DynamicTemplateReference(app, sourcePath, args.template, i, args);
+					templates.push(currentTemplate);
+					continue;
+				}
+			}
+
+			if (line.match(regexTempEnd) && currentTemplate) {
+				currentTemplate.lineEnd = i;
+				currentTemplate = null;
+				continue;
+			}
+
+		}
+
+		return templates;
+	}
+
 	private async update(file: TFile) {
 		// I tried using vault.process rather than vault.read + vault.modify but it doesn't work
 		// because the new content must be returned synchronously but template generation is 
@@ -253,8 +304,8 @@ export default class DynamicTemplatesPlugin extends Plugin {
 		const { vault } = this.app;
 		const md = await vault.read(file);
 
-		const templates = getDynamicTemplates(md, path);
-		if (templates.length === 0) {
+		const references = this.getDynamicTemplateReferences(md, path);
+		if (references.length === 0) {
 			this.removeKnownTemplatedFilePath(path);
 			return;
 		} else {
@@ -268,20 +319,20 @@ export default class DynamicTemplatesPlugin extends Plugin {
 			const line = lines[i];
 			newLines.push(line);
 
-			const template = templates.find(t => t.lineStart === i);
-			if (template) {
-				const generatedContent = await template.generate(this.app);
+			const reference = references.find(t => t.lineStart === i);
+			if (reference) {
+				const generatedContent = await reference.invokeTemplate();
 				if (generatedContent) {
-					this.addKnownTemplatePath(template.path);
+					this.addKnownTemplatePath(reference.path);
 
 					newLines.push(...getLines(generatedContent));
 					newLines.push('%%%%');
 				} else {
-					this.removeKnownTemplatePath(template.path);
+					this.removeKnownTemplatePath(reference.path);
 				}
 
-				if (template.lineEnd) {
-					i += template.lineEnd - template.lineStart;
+				if (reference.lineEnd) {
+					i += reference.lineEnd - reference.lineStart;
 				}
 			}
 		}
@@ -312,31 +363,31 @@ export default class DynamicTemplatesPlugin extends Plugin {
 	}
 }
 
-export class TemplateSelectionModal extends SuggestModal<string> {
+export class StringSuggestModel extends SuggestModal<string> {
 
-	private templates: string[];
-	private callback: (selectedTemplate: string) => void;
+	private suggestions: string[];
+	private callback: (selection: string) => void;
 
 	public constructor(
 		app: App,
-		templates: string[],
-		callback: (selectedTemplate: string) => void
+		data: string[],
+		callback: (selection: string) => void
 	) {
 		super(app);
-		this.templates = templates;
+		this.suggestions = data;
 		this.callback = callback;
 	}
 
 	public override getSuggestions(query: string): string[] {
-		return this.templates.filter(t => t.toLowerCase().includes(query.toLowerCase()));
+		return this.suggestions.filter(t => t.toLowerCase().includes(query.toLowerCase()));
 	}
 
-	public override renderSuggestion(template: string, el: HTMLElement) {
-		el.createEl('div', { text: template });
+	public override renderSuggestion(suggestion: string, el: HTMLElement) {
+		el.createEl('div', { text: suggestion });
 	}
 
-	public override onChooseSuggestion(template: string, evt: MouseEvent | KeyboardEvent) {
-		this.callback(template);
+	public override onChooseSuggestion(suggestion: string, _evt: MouseEvent | KeyboardEvent) {
+		this.callback(suggestion);
 	}
 }
 
