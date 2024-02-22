@@ -2,7 +2,7 @@ import { App, Editor, MarkdownView, Plugin, PluginSettingTab, SuggestModal, TFil
 
 /**
  * TERMINOLOGY
- * - Template reference = %% template: … %%
+ * - Template reference = %%{ template: … }%%
  * - Template (script) = the JS file used to generate Markdown
  * - Template invocation = executing a template with args to generate Markdown
  * - Template result = the generated content
@@ -32,7 +32,7 @@ function getLines(md: string): string[] {
 
 function hasDynamicTemplates(md: string): boolean {
 	// TODO Simpler, more performant heuristic?
-	const regex = /^%%\s+([^%]+)\s+%%\s*$/m;
+	const regex = /^%%{\s+([^%]+)\s+}%%\s*$/m;
 	return md.match(regex) != null;
 }
 
@@ -204,7 +204,7 @@ export default class DynamicTemplatesPlugin extends Plugin {
 							.then(async (template: DynamicTemplate | null) => {
 								const result = template?.invoke(file.path)
 
-								let templateInsert = `%% template: '${selectedTemplatePath}' %%`;
+								let templateInsert = `%%{ template: '${selectedTemplatePath}' }%%`;
 								if (result) {
 									templateInsert += `\n${result}\n%%%%`;
 								}
@@ -240,7 +240,7 @@ export default class DynamicTemplatesPlugin extends Plugin {
 	}
 
 	private getDynamicTemplateReferences(md: string, sourcePath: string): DynamicTemplateReference[] {
-		const regexTempStart = /^%%\s+([^%]+)\s+%%\s*$/;
+		const regexTempStart = /^%%{\s+([^%]+)\s+}%%\s*$/;
 		const regexTempEnd = /^%%%%\s*$/;
 
 		const templates: DynamicTemplateReference[] = [];
