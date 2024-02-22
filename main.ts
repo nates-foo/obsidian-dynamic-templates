@@ -45,25 +45,34 @@ class DynamicTemplate {
 	/**
 	 * @param sourcePath the path of the file referencing "path"
 	 * @param path the path of the template script
-	 * @returns a template instance or null if the template script wasn't found
+	 * @returns a template instance, even if the template script could not be found
 	 */
-	public static async get(app: App, sourcePath: string, path: string): Promise<DynamicTemplate | null> {
+	public static async get(app: App, sourcePath: string, path: string): Promise<DynamicTemplate> {
 		// Based on https://github.com/blacksmithgu/obsidian-dataview/blob/e4a6cab97b628deb22d36b73ce912abca541ad42/src/api/inline-api.ts#L317
         const file = app.metadataCache.getFirstLinkpathDest(path, sourcePath);
-		if (!file) return null;
 
-		let code = await app.vault.cachedRead(file);
-		if (code.contains("await")) code = "(async () => { " + code + " })()";
+		let code: string;
+		if (file) {
+			code = await app.vault.cachedRead(file);
+			if (code.contains('await')) code = '(async () => { ' + code + ' })()';
+		} else {
+			code = "throw new Error('Template not found')";
+		}
 
-		return new DynamicTemplate(app, code);
+		return new DynamicTemplate(app, path, code, file != null);
 	}
 
 	private app: App;
 	private code: string;
 
-	private constructor(app: App, code: string) {
+	public path: string;
+	public exists: boolean;
+
+	private constructor(app: App, path: string, code: string, exists: boolean) {
 		this.app = app;
 		this.code = code;
+		this.path = path;
+		this.exists = exists;
 	}
 
 	/**
@@ -126,13 +135,13 @@ class DynamicTemplateReference {
 		this.args = args;
 	}
 
+	public async template(): Promise<DynamicTemplate> {
+		return await DynamicTemplate.get(this.app, this.sourcePath, this.path);
+	}
+
 	public async invokeTemplate(): Promise<string | null | undefined> {
-		const template = await DynamicTemplate.get(this.app, this.sourcePath, this.path);
-		if (template) {
-			return template.invoke(this.sourcePath, this.args);
-		} else {
-			return `%% **Error:** Template not found. %%`;
-		}
+		const template = await this.template();
+		return template.invoke(this.sourcePath, this.args);
 	}
 }
 
@@ -213,10 +222,10 @@ export default class DynamicTemplatesPlugin extends Plugin {
 						const lineContent = editor.getLine(cursor.line);
 
 						DynamicTemplate.get(this.app, file.path, selectedTemplatePath)
-							.then(async (template: DynamicTemplate | null) => {
-								const result = template?.invoke(file.path)
-
+							.then(async (template: DynamicTemplate) => {
 								let templateInsert = `%%{ template: '${selectedTemplatePath}' }%%`;
+
+								const result = await template.invoke(file.path)
 								if (result) {
 									templateInsert += `\n${result}\n%%%%`;
 								}
@@ -232,6 +241,11 @@ export default class DynamicTemplatesPlugin extends Plugin {
 									editor.replaceRange("\n" + templateInsert, position);
 									// Move cursor to end of insert.
 									editor.setCursor(cursor.line + 1, templateInsert.length);
+								}
+
+								if (!template.exists) {
+									this.removeKnownTemplatePath(template.path);
+									this.saveSettings();
 								}
 							});
 					}
@@ -312,16 +326,16 @@ export default class DynamicTemplatesPlugin extends Plugin {
 		// because the new content must be returned synchronously but template generation is 
 		// currently asynchronous.
 
-		const { path } = file;
+		const { path: sourcePath } = file;
 		const { vault } = this.app;
 		const md = await vault.read(file);
 
-		const references = this.getDynamicTemplateReferences(md, path);
+		const references = this.getDynamicTemplateReferences(md, sourcePath);
 		if (references.length === 0) {
-			this.removeKnownTemplatedFilePath(path);
+			this.removeKnownTemplatedFilePath(sourcePath);
 			return;
 		} else {
-			this.addKnownTemplatedFilePath(path);
+			this.addKnownTemplatedFilePath(sourcePath);
 		}
 
 		const lines = getLines(md);
@@ -333,12 +347,15 @@ export default class DynamicTemplatesPlugin extends Plugin {
 
 			const reference = references.find(t => t.lineStart === i);
 			if (reference) {
-				const generatedContent = await reference.invokeTemplate();
-				if (generatedContent) {
-					this.addKnownTemplatePath(reference.path);
-
-					newLines.push(...getLines(generatedContent));
+				const template = await reference.template();
+				const result = await template.invoke(sourcePath, reference.args);
+				if (result) {
+					newLines.push(...getLines(result));
 					newLines.push('%%%%');
+				}
+
+				if (template.exists) {
+					this.addKnownTemplatePath(reference.path);
 				} else {
 					this.removeKnownTemplatePath(reference.path);
 				}
