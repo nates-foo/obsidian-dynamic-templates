@@ -55,41 +55,49 @@ class DynamicTemplate {
 		let code = await app.vault.cachedRead(file);
 		if (code.contains("await")) code = "(async () => { " + code + " })()";
 
-		const func = new Function('dv', 'input', code);
-		return new DynamicTemplate(app, func);
+		return new DynamicTemplate(app, code);
 	}
 
 	private app: App;
-	private templateFunction: Function;
+	private code: string;
 
-	private constructor(app: App, templateFunction: Function) {
+	private constructor(app: App, code: string) {
 		this.app = app;
-		this.templateFunction = templateFunction;
+		this.code = code;
 	}
 
 	/**
 	 * @param sourcePath the path of the file invoking the template
 	 */
 	public async invoke(sourcePath: string, args?: any): Promise<string | null | undefined> {
-		let dvProxy = null;
-		const dv = getDataviewPlugin(this.app)?.api;
-		if (dv) {
-			const handler = {
-				get: function (target: any, prop: any, _receiver: any) {
-					if (prop === 'current') {
-						return () => target.page(sourcePath);
+		try {
+			const templateFunction = new Function('dv', 'input', this.code);
+			let dvProxy = null;
+			const dv = getDataviewPlugin(this.app)?.api;
+			if (dv) {
+				const handler = {
+					get: function (target: any, prop: any, _receiver: any) {
+						if (prop === 'current') {
+							return () => target.page(sourcePath);
+						}
+
+						// @ts-ignore
+						return Reflect.get(...arguments);
 					}
+				};
+				dvProxy = new Proxy(dv, handler);
+			}
 
-					// @ts-ignore
-					return Reflect.get(...arguments);
-				}
-			};
-			dvProxy = new Proxy(dv, handler);
+			const result = await Promise.resolve(templateFunction(dvProxy, args));
+			return result?.toString();
+
+		} catch (error) {
+			if (error.name) {
+				return `%% **${error.name}:** ${error.message} %%`;
+			} else {
+				return `%% ${error.toString()} %%`;
+			}
 		}
-
-		const result = await Promise.resolve(this.templateFunction(dvProxy, args));
-		// TODO If there was an error, display it
-		return result?.toString();
 	}
 }
 
@@ -120,7 +128,11 @@ class DynamicTemplateReference {
 
 	public async invokeTemplate(): Promise<string | null | undefined> {
 		const template = await DynamicTemplate.get(this.app, this.sourcePath, this.path);
-		return template ? template.invoke(this.sourcePath, this.args) : null;
+		if (template) {
+			return template.invoke(this.sourcePath, this.args);
+		} else {
+			return `%% **Error:** Template not found. %%`;
+		}
 	}
 }
 
