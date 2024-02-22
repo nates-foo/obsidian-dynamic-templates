@@ -276,7 +276,7 @@ export default class DynamicTemplatesPlugin extends Plugin {
 
 			const matchTempStart = line.match(regexTempStart);
 			if (matchTempStart) {
-				const args = eval(`({${matchTempStart[1]}})`);
+				const args = new Function(`return {${matchTempStart[1]}}`)();
 				if (args.template) {
 					currentTemplate = new DynamicTemplateReference(app, sourcePath, args.template, i, args);
 					templates.push(currentTemplate);
