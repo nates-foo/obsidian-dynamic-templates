@@ -80,7 +80,13 @@ class DynamicTemplate {
 	 */
 	public async invoke(sourcePath: string, args?: any): Promise<string | null | undefined> {
 		try {
-			const templateFunction = new Function('dv', 'input', this.code);
+			const templateFunction = new Function('require', 'dv', 'input', this.code);
+
+			const customRequire = (path: string): any => {
+				const absolutePath = this.app.vault.adapter.basePath + '/' + path;
+				return require(absolutePath);
+			}
+
 			let dvProxy = null;
 			const dv = getDataviewPlugin(this.app)?.api;
 			if (dv) {
@@ -97,7 +103,7 @@ class DynamicTemplate {
 				dvProxy = new Proxy(dv, handler);
 			}
 
-			const result = await Promise.resolve(templateFunction(dvProxy, args));
+			const result = await Promise.resolve(templateFunction(customRequire, dvProxy, args));
 			return result?.toString();
 
 		} catch (error) {
