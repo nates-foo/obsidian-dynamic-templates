@@ -264,7 +264,7 @@ export default class DynamicTemplatesPlugin extends Plugin {
 
 								const result = await template.invoke(file.path)
 								if (result) {
-									templateInsert += `\n${result}\n%%%%`;
+									templateInsert += `\n\n${result}\n\n%% %%`;
 								}
 
 								if (lineContent.trim() === "") {
@@ -304,7 +304,7 @@ export default class DynamicTemplatesPlugin extends Plugin {
 
 	private getDynamicTemplateReferences(md: string, sourcePath: string): DynamicTemplateReference[] {
 		const regexTempStart = /^%%{\s+([^%]+)\s+}%%\s*$/;
-		const regexTempEnd = /^%%%%\s*$/;
+		const regexTempEnd = /^%%\s?%%\s*$/;
 
 		const templates: DynamicTemplateReference[] = [];
 		let currentTemplate: DynamicTemplateReference | null = null;
@@ -387,8 +387,9 @@ export default class DynamicTemplatesPlugin extends Plugin {
 				const template = await reference.template();
 				const result = await template.invoke(sourcePath, reference.args);
 				if (result) {
+					newLines.push('');
 					newLines.push(...getLines(result));
-					newLines.push('%%%%');
+					newLines.push('', '%% %%');
 				}
 
 				if (template.exists) {
