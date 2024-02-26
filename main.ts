@@ -53,27 +53,30 @@ class DynamicTemplate {
 		// Based on https://github.com/blacksmithgu/obsidian-dataview/blob/e4a6cab97b628deb22d36b73ce912abca541ad42/src/api/inline-api.ts#L317
         const file = app.metadataCache.getFirstLinkpathDest(path, sourcePath);
 
+		let vaultPath: string;
 		let code: string;
 		if (file) {
+			vaultPath = file.path;
 			code = await app.vault.cachedRead(file);
 			if (code.contains('await')) code = 'return (async () => { ' + code + ' })()';
 		} else {
+			vaultPath = path;
 			code = "throw new Error('Template not found')";
 		}
 
-		return new DynamicTemplate(app, path, code, file != null);
+		return new DynamicTemplate(app, vaultPath, code, file != null);
 	}
 
 	private app: App;
 	private code: string;
 
-	public path: string;
+	public vaultPath: string;
 	public exists: boolean;
 
-	private constructor(app: App, path: string, code: string, exists: boolean) {
+	private constructor(app: App, vaultPath: string, code: string, exists: boolean) {
 		this.app = app;
 		this.code = code;
-		this.path = path;
+		this.vaultPath = vaultPath;
 		this.exists = exists;
 	}
 
@@ -83,23 +86,19 @@ class DynamicTemplate {
 				return require(module);
 			} catch (error) {
 				if (error.code === 'MODULE_NOT_FOUND') {
-					let vaultPath = module;
-					if (!vaultPath.startsWith('/')) {
-						// Relative path.
-						const index = vaultSourcePath.lastIndexOf('/');
-						if (index > 0) {
-							vaultPath = '/' + vaultSourcePath.substring(0, index) + '/' + vaultPath;
-						}
+					const file = this.app.metadataCache.getFirstLinkpathDest(module, vaultSourcePath);
+					if (file) {
+						// @ts-ignore
+						const absolutePath = this.app.vault.adapter.basePath + '/' + file.path;
+						const moduleCode = readFileSync(absolutePath, 'utf8');
+						const script = new Script(moduleCode, { filename: module });
+
+						const context = { require: this.customRequire(file.path, dv), module: { exports: {} }, dv };
+						script.runInNewContext(context);
+						return context.module.exports;
+					} else {
+						throw error;
 					}
-
-					// @ts-ignore
-					const absolutePath = this.app.vault.adapter.basePath + vaultPath;
-
-					const moduleCode = readFileSync(absolutePath, 'utf8');
-					const script = new Script(moduleCode, { filename: module });
-					const context = { require: this.customRequire(vaultPath, dv), module: { exports: {} }, dv };
-					script.runInNewContext(context);
-					return context.module.exports;
 				}
 			}
 		}
@@ -132,7 +131,7 @@ class DynamicTemplate {
 				dvProxy = new Proxy(dv, handler);
 			}
 
-			const customRequire = this.customRequire(this.path, dv);
+			const customRequire = this.customRequire(this.vaultPath, dv);
 			const result = await Promise.resolve(templateFunction(customRequire, dvProxy, args, invokeTemplate));
 			return result?.toString();
 
@@ -281,7 +280,7 @@ export default class DynamicTemplatesPlugin extends Plugin {
 								}
 
 								if (!template.exists) {
-									this.removeKnownTemplatePath(template.path);
+									this.removeKnownTemplatePath(template.vaultPath);
 									this.saveSettings();
 								}
 							});
@@ -341,7 +340,7 @@ export default class DynamicTemplatesPlugin extends Plugin {
 			if (matchTempStart) {
 				const args = new Function(`return {${matchTempStart[1]}}`)();
 				if (args.template) {
-					currentTemplate = new DynamicTemplateReference(app, sourcePath, args.template, i, args);
+					currentTemplate = new DynamicTemplateReference(this.app, sourcePath, args.template, i, args);
 					templates.push(currentTemplate);
 					continue;
 				}
