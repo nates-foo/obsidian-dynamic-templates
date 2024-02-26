@@ -137,6 +137,7 @@ class DynamicTemplate {
 			return result?.toString();
 
 		} catch (error) {
+			console.error(error);
 			if (error.name) {
 				return `%% **${error.name}:** ${error.message} %%`;
 			} else {
