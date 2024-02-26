@@ -109,7 +109,12 @@ class DynamicTemplate {
 	 */
 	public async invoke(sourcePath: string, args?: any): Promise<string | null | undefined> {
 		try {
-			const templateFunction = new Function('require', 'dv', 'input', this.code);
+			const templateFunction = new Function('require', 'dv', 'input', 'invokeTemplate', this.code);
+
+			const invokeTemplate = async (path: string, args?: any): Promise<string | null | undefined> => {
+				const template = await DynamicTemplate.get(this.app, sourcePath, path);
+				return template.invoke(sourcePath, args);
+			}
 
 			let dvProxy = null;
 			const dv = getDataviewPlugin(this.app)?.api;
@@ -128,7 +133,7 @@ class DynamicTemplate {
 			}
 
 			const customRequire = this.customRequire(this.path, dv);
-			const result = await Promise.resolve(templateFunction(customRequire, dvProxy, args));
+			const result = await Promise.resolve(templateFunction(customRequire, dvProxy, args, invokeTemplate));
 			return result?.toString();
 
 		} catch (error) {
