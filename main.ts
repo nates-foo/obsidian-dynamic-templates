@@ -56,7 +56,7 @@ class DynamicTemplate {
 		let code: string;
 		if (file) {
 			code = await app.vault.cachedRead(file);
-			if (code.contains('await')) code = '(async () => { ' + code + ' })()';
+			if (code.contains('await')) code = 'return (async () => { ' + code + ' })()';
 		} else {
 			code = "throw new Error('Template not found')";
 		}
