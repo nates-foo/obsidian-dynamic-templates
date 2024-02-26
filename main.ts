@@ -1,4 +1,6 @@
 import { App, Editor, MarkdownView, Plugin, PluginSettingTab, SuggestModal, TFile } from 'obsidian';
+import { readFileSync } from 'fs';
+import { Script } from 'vm';
 
 /**
  * TERMINOLOGY
@@ -75,17 +77,39 @@ class DynamicTemplate {
 		this.exists = exists;
 	}
 
+	private customRequire(vaultSourcePath: string, dv: any): (module: string) => any {
+		return (module: string): any => {
+			try {
+				return require(module);
+			} catch (error) {
+				if (error.code === 'MODULE_NOT_FOUND') {
+					let vaultPath = module;
+					if (!vaultPath.startsWith('/')) {
+						// Relative path.
+						const index = vaultSourcePath.lastIndexOf('/');
+						if (index > 0) {
+							vaultPath = '/' + vaultSourcePath.substring(0, index) + '/' + vaultPath;
+						}
+					}
+
+					// @ts-ignore
+					const absolutePath = this.app.vault.adapter.basePath + vaultPath;
+
+					const moduleCode = readFileSync(absolutePath, 'utf8');
+					const script = new Script(moduleCode, { filename: module });
+					const context = { require: this.customRequire(vaultPath, dv), module: { exports: {} }, dv };
+					script.runInNewContext(context);
+					return context.module.exports;
+				}
+			}
+		}
+	}
 	/**
 	 * @param sourcePath the path of the file invoking the template
 	 */
 	public async invoke(sourcePath: string, args?: any): Promise<string | null | undefined> {
 		try {
 			const templateFunction = new Function('require', 'dv', 'input', this.code);
-
-			const customRequire = (path: string): any => {
-				const absolutePath = this.app.vault.adapter.basePath + '/' + path;
-				return require(absolutePath);
-			}
 
 			let dvProxy = null;
 			const dv = getDataviewPlugin(this.app)?.api;
@@ -103,6 +127,7 @@ class DynamicTemplate {
 				dvProxy = new Proxy(dv, handler);
 			}
 
+			const customRequire = this.customRequire(this.path, dv);
 			const result = await Promise.resolve(templateFunction(customRequire, dvProxy, args));
 			return result?.toString();
 
