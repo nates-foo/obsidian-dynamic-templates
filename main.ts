@@ -93,7 +93,7 @@ class DynamicTemplate {
 						const moduleCode = readFileSync(absolutePath, 'utf8');
 						const script = new Script(moduleCode, { filename: module });
 
-						const context = { require: this.customRequire(file.path, dv), module: { exports: {} }, dv };
+						const context = { console, require: this.customRequire(file.path, dv), module: { exports: {} }, dv };
 						script.runInNewContext(context);
 						return context.module.exports;
 					} else {
