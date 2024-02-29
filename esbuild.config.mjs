@@ -1,6 +1,7 @@
 import esbuild from "esbuild";
 import process from "process";
 import builtins from "builtin-modules";
+import fs from "fs";
 
 const banner =
 `/*
@@ -10,6 +11,22 @@ if you want to view the source, please visit the github repository of this plugi
 `;
 
 const prod = (process.argv[2] === "production");
+
+const PLUGIN_FILES = ['manifest.json', 'styles.css', 'main.js'];
+const TEST_VAULT_PATH = 'test-vault/.obsidian/plugins/obsidian-dynamic-templates';
+
+let testVaultPlugin = {
+	name: 'test-vault',
+	setup(build) {
+		build.onEnd(result => {
+			if (result.errors.length === 0) {
+				for (const file of PLUGIN_FILES) {
+					fs.copyFileSync(file, `${TEST_VAULT_PATH}/${file}`);
+				}
+			}
+		})
+	},
+};
 
 const context = await esbuild.context({
 	banner: {
@@ -38,6 +55,7 @@ const context = await esbuild.context({
 	sourcemap: prod ? false : "inline",
 	treeShaking: true,
 	outfile: "main.js",
+	plugins: [testVaultPlugin],
 });
 
 if (prod) {
