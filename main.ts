@@ -226,7 +226,7 @@ export default class DynamicTemplatesPlugin extends Plugin {
 
 		this.addCommand({
 			id: 'invoke-known',
-			name: 'Invoke all known templates',
+			name: 'Invoke templates in all known templated notes',
 			callback: async () => {
 				const { vault } = this.app;
 				for (const path of this.settings.knownTemplatedFilePaths) {
