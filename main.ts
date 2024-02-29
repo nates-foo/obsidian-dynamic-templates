@@ -131,7 +131,7 @@ class DynamicTemplate {
 				dvProxy = new Proxy(dv, handler);
 			}
 
-			const customRequire = this.customRequire(this.vaultPath, dv);
+			const customRequire = this.customRequire(this.vaultPath, dvProxy);
 			const result = await Promise.resolve(templateFunction(customRequire, dvProxy, args, invokeTemplate));
 			return result?.toString();
 
