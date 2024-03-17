@@ -15,7 +15,7 @@ const prod = (process.argv[2] === "production");
 const PLUGIN_FILES = ['manifest.json', 'styles.css', 'main.js'];
 const TEST_VAULT_PATH = 'test-vault/.obsidian/plugins/obsidian-dynamic-templates';
 
-let testVaultPlugin = {
+const testVaultPlugin = {
 	name: 'test-vault',
 	setup(build) {
 		build.onEnd(result => {

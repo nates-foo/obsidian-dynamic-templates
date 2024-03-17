@@ -37,10 +37,10 @@ return `## Header
 - Foo
 - Bar
 - Date: 2/21/2024
-%%%%
+%% %%
 ```
 
-`%%{ template: … }%%` marks the beginning of the templated section, and `%%%%` its end. Because they're Markdown comments, they don't show in reading view, but the header and the list do. **Each time the template is invoked, its current generated content is replaced with the new one.** For example, if we invoke this template the next day, this section of the note will be updated to:
+`%%{ template: … }%%` marks the beginning of the templated section, and `%% %%` its end. Because they're Markdown comments, they don't show in reading view, but the header and the list do. **Each time the template is invoked, its current generated content is replaced with the new one.** For example, if we invoke this template the next day, this section of the note will be updated to:
 
 ```
 %%{ template: 'templates/foobar.js' }%%
@@ -48,7 +48,7 @@ return `## Header
 - Foo
 - Bar
 - Date: 2/22/2024
-%%%%
+%% %%
 ```
 
 ## Full Documentation

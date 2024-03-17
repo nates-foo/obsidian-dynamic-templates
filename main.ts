@@ -108,9 +108,10 @@ class DynamicTemplate {
 	 */
 	public async invoke(sourcePath: string, args?: any): Promise<string | null | undefined> {
 		try {
-			const templateFunction = new Function('require', 'dv', 'input', 'invokeTemplate', this.code);
+			const templateFunction = new Function('require', 'dv', 'input', 'invokeTemplate', 'app', this.code);
 
 			const invokeTemplate = async (path: string, args?: any): Promise<string | null | undefined> => {
+				if (!path) throw new Error(`Path is ${path}`);
 				const template = await DynamicTemplate.get(this.app, sourcePath, path);
 				return template.invoke(sourcePath, args);
 			}
@@ -132,7 +133,7 @@ class DynamicTemplate {
 			}
 
 			const customRequire = this.customRequire(this.vaultPath, dvProxy);
-			const result = await Promise.resolve(templateFunction(customRequire, dvProxy, args, invokeTemplate));
+			const result = await Promise.resolve(templateFunction(customRequire, dvProxy, args, this.app, invokeTemplate));
 			return result?.toString();
 
 		} catch (error) {
@@ -263,7 +264,7 @@ export default class DynamicTemplatesPlugin extends Plugin {
 
 								const result = await template.invoke(file.path)
 								if (result) {
-									templateInsert += `\n\n${result}\n\n%% %%`;
+									templateInsert += `\n${result}\n%% %%`;
 								}
 
 								if (lineContent.trim() === "") {
@@ -386,9 +387,8 @@ export default class DynamicTemplatesPlugin extends Plugin {
 				const template = await reference.template();
 				const result = await template.invoke(sourcePath, reference.args);
 				if (result) {
-					newLines.push('');
 					newLines.push(...getLines(result));
-					newLines.push('', '%% %%');
+					newLines.push('%% %%');
 				}
 
 				if (template.exists) {
